@@ -1,8 +1,8 @@
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms, datasets
-import matplotlib.pyplot as plt
 
 
 class ConvNet1(nn.Module):
@@ -31,12 +31,12 @@ class ConvNet1(nn.Module):
 class ConvNet2(nn.Module):
     def __init__(self):
         super(ConvNet2, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 128, kernel_size=3, stride=1, padding=1),
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 4, kernel_size=3, stride=1, padding=1),
                                     nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
-        self.layer2 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=5, stride=1, padding=2),
+        self.layer2 = nn.Sequential(nn.Conv2d(4, 16, kernel_size=5, stride=1, padding=2),
                                     nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
         self.drop_out = nn.Dropout()
-        self.fc1 = nn.Linear(7 * 7 * 256, 1000)
+        self.fc1 = nn.Linear(7 * 7 * 16, 1000)
         self.fc2 = nn.Linear(1000, 10)
         self.soft_max = nn.Softmax(dim=1)
 
@@ -74,8 +74,50 @@ class ConvNet3(nn.Module):
         return out
 
 
-best_acc = -1
-best_model = None
+def train(model, train_loader, learning_rate, num_epochs):
+    print(model.__class__)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    total_step = len(train_loader)
+    loss_list = []
+    acc_list = []
+    for epoch in range(num_epochs):
+        for i, (images, labels) in enumerate(train_loader):
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss_list.append(loss.item())
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            total = labels.size(0)
+            _, predicted = torch.max(outputs.data, 1)
+            correct = (predicted == labels).sum().item()
+            acc_list.append(correct / total)
+            if (i + 1) % 100 == 0:
+                print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Accuracy: {:.2f}'
+                      .format(epoch + 1, num_epochs, i + 1, total_step, loss.item(),
+                              correct / total))
+    return model
+
+
+def test(model, test_loader):
+    model.eval()
+    with torch.no_grad():
+        correct = 0
+        total = 0
+        for images, labels in test_loader:
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+        accuracy = correct / total
+        print('Test Accuracy of the model: {}'.format(accuracy))
+    return accuracy
+
+
 num_epochs = 5
 num_classes = 10
 batch_size = 100
@@ -91,49 +133,15 @@ test_dataset = datasets.MNIST(root=DATA_PATH, train=False, transform=trans, down
 train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
 
+best_acc = -1
+best_model = None
 for network in [ConvNet1, ConvNet2, ConvNet3]:
-    model = network()
-    print(network.__name__)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    model = train(network(), train_loader, learning_rate, num_epochs)
+    accuracy = test(model, test_loader)
 
-    total_step = len(train_loader)
-    loss_list = []
-    acc_list = []
-    for epoch in range(num_epochs):
-        for i, (images, labels) in enumerate(train_loader):
-            # Прямой запуск
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss_list.append(loss.item())
-            # Обратное распространение и оптимизатор
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            # Отслеживание точности
-            total = labels.size(0)
-            _, predicted = torch.max(outputs.data, 1)
-            correct = (predicted == labels).sum().item()
-            acc_list.append(correct / total)
-            if (i + 1) % 100 == 0:
-                print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Accuracy: {:.2f}'
-                      .format(epoch + 1, num_epochs, i + 1, total_step, loss.item(),
-                              correct / total))
-
-    model.eval()
-    with torch.no_grad():
-        correct = 0
-        total = 0
-        for images, labels in test_loader:
-            outputs = model(images)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-        accuracy = correct / total
-        print('Test Accuracy of the model', network.__name__, 'on the 10000 test images: {}'.format(accuracy))
-        if accuracy > best_acc:
-            best_acc = accuracy
-            best_model = model
+    if accuracy > best_acc:
+        best_acc = accuracy
+        best_model = network()
 
 trans = transforms.Compose([transforms.ToTensor()])
 
@@ -142,6 +150,8 @@ test_dataset = datasets.FashionMNIST(root=DATA_PATH, train=False, transform=tran
 
 train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
+
+fashion_model = train(best_model, train_loader, learning_rate, num_epochs)
 
 similar = [0] * 10
 similar_probabilities = [0] * 10
@@ -156,14 +166,15 @@ with torch.no_grad():
     total = 0
     k = 0
     for images, labels in test_loader:
-        outputs = best_model(images)
+        outputs = fashion_model(images)
         pred_prob, predicted = torch.max(outputs.data, 1)
         for i in range(len(labels)):
             CM[labels[i]][predicted[i]] += 1
         for i in range(len(labels)):
-            if pred_prob[i] > similar_probabilities[predicted[i]][labels[i]]:
-                similar_probabilities[predicted[i]][labels[i]] = pred_prob[i]
-                similar[predicted[i]][labels[i]] = images[i].shape[0] + 100 * k
+            for j in range(len(outputs[i])):
+                if outputs[i][j] > similar_probabilities[j][labels[i]]:
+                    similar_probabilities[j][labels[i]] = outputs[i][j]
+                    similar[j][labels[i]] = i + batch_size * k
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
         k += 1
@@ -181,5 +192,8 @@ with torch.no_grad():
                 k += 1
             plots[i][j].set_xticks([])
             plots[i][j].set_yticks([])
-print(CM )
+
+print('Confusion Matrix')
+for row in CM:
+    print(row)
 plt.show()
