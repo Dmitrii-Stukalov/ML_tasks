@@ -36,8 +36,8 @@ class ConvNet2(nn.Module):
         self.layer2 = nn.Sequential(nn.Conv2d(4, 16, kernel_size=5, stride=1, padding=2),
                                     nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
         self.drop_out = nn.Dropout()
-        self.fc1 = nn.Linear(7 * 7 * 16, 1000)
-        self.fc2 = nn.Linear(1000, 10)
+        self.fc1 = nn.Linear(7 * 7 * 16, 100)
+        self.fc2 = nn.Linear(100, 10)
         self.soft_max = nn.Softmax(dim=1)
 
     def forward(self, x):
@@ -80,13 +80,10 @@ def train(model, train_loader, learning_rate, num_epochs):
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     total_step = len(train_loader)
-    loss_list = []
-    acc_list = []
     for epoch in range(num_epochs):
         for i, (images, labels) in enumerate(train_loader):
             outputs = model(images)
             loss = criterion(outputs, labels)
-            loss_list.append(loss.item())
 
             optimizer.zero_grad()
             loss.backward()
@@ -95,9 +92,8 @@ def train(model, train_loader, learning_rate, num_epochs):
             total = labels.size(0)
             _, predicted = torch.max(outputs.data, 1)
             correct = (predicted == labels).sum().item()
-            acc_list.append(correct / total)
             if (i + 1) % 100 == 0:
-                print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Accuracy: {:.2f}'
+                print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Accuracy: {:.4f}'
                       .format(epoch + 1, num_epochs, i + 1, total_step, loss.item(),
                               correct / total))
     return model
@@ -123,7 +119,6 @@ num_classes = 10
 batch_size = 100
 learning_rate = 0.001
 DATA_PATH = 'datasets/CNN/'
-MODEL_STORE_PATH = 'model/'
 
 trans = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 
@@ -169,7 +164,7 @@ with torch.no_grad():
         outputs = fashion_model(images)
         pred_prob, predicted = torch.max(outputs.data, 1)
         for i in range(len(labels)):
-            CM[labels[i]][predicted[i]] += 1
+            CM[predicted[i]][labels[i]] += 1
         for i in range(len(labels)):
             for j in range(len(outputs[i])):
                 if outputs[i][j] > similar_probabilities[j][labels[i]]:
@@ -187,7 +182,7 @@ with torch.no_grad():
             k = 0
             for image, label in test_loader:
                 if k == similar[i][j]:
-                    plots[i][j].imshow(image[0].reshape(28, 28), cmap='gray')
+                    plots[j][i].imshow(image[0].reshape(28, 28), cmap='gray')
                     break
                 k += 1
             plots[i][j].set_xticks([])
